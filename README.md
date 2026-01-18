@@ -1,11 +1,6 @@
 # Resume Builder
 
-![Version](https://img.shields.io/badge/version-7.0-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
-
 A professional, single-page, client-side resume generator built with pure HTML, CSS, and JavaScript. No database or backend server required.
-
-![Resume Builder Screenshot](https://via.placeholder.com/800x450?text=Resume+Builder+Interface)
 
 ## ✨ Features
 
