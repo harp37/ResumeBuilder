@@ -1339,38 +1339,86 @@
         function getExportClone() {
             const node = document.getElementById('previewArea').cloneNode(true);
             
-            // Clean up UI elements from the clone
-            node.querySelectorAll('.move-controls, .btn-rm').forEach(el => el.remove());
+            // Clean up UI elements
+            node.querySelectorAll('.move-controls, .btn-rm, .section-controls').forEach(el => el.remove());
             
-            // Ensure input/textareas are converted to text for export
+            // Convert inputs/textareas to text
             node.querySelectorAll('input, textarea').forEach(el => {
                 const text = document.createTextNode(el.value);
                 el.parentNode.replaceChild(text, el);
             });
+
+            // Resolve CSS Variables for accurate SVG/PNG rendering
+            // We replace var(--variable) with the actual computed value inline for critical elements
+            const resolveVars = (el) => {
+                const computed = window.getComputedStyle(el);
+                const style = el.style;
+                
+                // Check for color variables
+                if (style.color && style.color.includes('var')) {
+                    el.style.color = computed.color;
+                }
+                if (style.backgroundColor && style.backgroundColor.includes('var')) {
+                    el.style.backgroundColor = computed.backgroundColor;
+                }
+                // Check for border-color variables
+                if (style.borderColor && style.borderColor.includes('var')) {
+                    el.style.borderColor = computed.borderColor;
+                }
+                
+                Array.from(el.children).forEach(resolveVars);
+            };
+            resolveVars(node);
 
             return node;
         }
 
         function getSVGString() {
             const clone = getExportClone();
-            
-            // 1. Serialize the HTML content to valid XHTML
             const serializer = new XMLSerializer();
+            // Serialize the DOM to a valid XHTML string
             const data = serializer.serializeToString(clone);
-
-            // 2. Get CSS and wrap in CDATA to strictly prevent XML parsing errors
-            const styleContent = document.querySelector('style').innerHTML;
             
-            // 3. Construct the SVG
-            // We use specific width/height (A4 @ 96dpi approx 794x1123)
+            // Get the existing styles
+            const styleContent = document.querySelector('style').innerHTML;
+
+            // Helper to convert RGB to Hex for SVG compatibility
+            const rgbToHex = (rgb) => {
+                if (!rgb || rgb === 'transparent') return '#000000';
+                if (rgb.startsWith('#')) return rgb;
+                const rgbValues = rgb.match(/\d+/g);
+                if (!rgbValues) return '#000000';
+                return "#" + ((1 << 24) + (parseInt(rgbValues[0]) << 16) + (parseInt(rgbValues[1]) << 8) + parseInt(rgbValues[2])).toString(16).slice(1);
+            };
+
+            const accentColor = rgbToHex(getComputedStyle(document.documentElement).getPropertyValue('--accent').trim());
+            const textColor = rgbToHex(getComputedStyle(document.documentElement).getPropertyValue('--text-main').trim());
+
+            // We must escape the & in the font URL for XML validity (replace & with &amp;)
+            const fontUrl = "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&amp;family=Merriweather:ital,wght@0,300;0,700;1,400&amp;family=Fira+Code:wght@400;600&amp;family=Playfair+Display:ital,wght@0,400;0,700;1,400&amp;family=Lato:wght@300;400;700&amp;family=Oswald:wght@400;600&amp;family=Roboto+Slab:wght@300;400;700&amp;family=Raleway:wght@300;400;700&amp;family=Montserrat:wght@400;700&amp;family=Open+Sans:wght@400;600&amp;family=Lora:ital,wght@0,400;0,600;1,400&amp;family=Karla:wght@400;700&amp;family=Space+Mono:wght@400;700&amp;display=swap";
+
             return `
             <svg xmlns="http://www.w3.org/2000/svg" width="794" height="1123">
                 <defs>
-                    <style type="text/css">
-                    <![CDATA[
+                    <style type="text/css"><![CDATA[
+                        @import url('${fontUrl}');
+                        
+                        :root {
+                            --accent: ${accentColor};
+                            --text-main: ${textColor};
+                            --primary: #2d3748;
+                        }
+                        
                         ${styleContent}
-                    ]]>
-                    </style>
+                        
+                        /* Force background rendering for export */
+                        .page { 
+                            -webkit-print-color-adjust: exact; 
+                            print-color-adjust: exact; 
+                            background-color: white !important;
+                            color-adjust: exact;
+                        }
+                    ]]></style>
                 </defs>
                 <foreignObject width="100%" height="100%">
                     <div xmlns="http://www.w3.org/1999/xhtml" style="background:white; width:100%; height:100%;">
@@ -1386,8 +1434,12 @@
             const oldTitle = document.title;
             document.title = filename;
             closeExportSidebar();
-            window.print();
-            document.title = oldTitle;
+            
+            // Trigger print after a brief delay to allow UI transitions to finish
+            setTimeout(() => {
+                window.print();
+                document.title = oldTitle;
+            }, 300);
         }
 
         function exportPNG() {
@@ -1396,22 +1448,22 @@
 
             const svgString = getSVGString();
             const img = new Image();
-            
-            // Create a blob from the SVG string
             const blob = new Blob([svgString], {type: 'image/svg+xml;charset=utf-8'});
             const url = URL.createObjectURL(blob);
 
             img.onload = function() {
                 const canvas = document.createElement('canvas');
-                canvas.width = 794; 
-                canvas.height = 1123;
+                // High resolution scale (2x for Retina/Print quality)
+                const scale = 2;
+                canvas.width = 794 * scale; 
+                canvas.height = 1123 * scale;
                 const ctx = canvas.getContext('2d');
                 
-                // Fill white background (transparent by default)
+                ctx.scale(scale, scale);
                 ctx.fillStyle = "white";
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillRect(0, 0, 794, 1123);
                 
-                ctx.drawImage(img, 0, 0);
+                ctx.drawImage(img, 0, 0, 794, 1123);
                 
                 const pngUrl = canvas.toDataURL("image/png");
                 const downloadLink = document.createElement("a");
@@ -1423,11 +1475,9 @@
                 URL.revokeObjectURL(url);
             };
             
-            // Handle loading errors (often due to tainting)
             img.onerror = function() {
-                alert("Error generating image. This is often caused by external fonts/images security policies.");
+                alert("Error generating image. External fonts or strict browser security settings might be blocking the conversion.");
             };
-
             img.src = url;
         }
 
@@ -1448,7 +1498,7 @@
             URL.revokeObjectURL(url);
         }
 
-        // --- ROBUST DOCX EXPORT ---
+        // --- ENHANCED DOCX EXPORT ---
         function exportDOCX() {
             const filename = document.getElementById('exportFilename').value || 'resume';
             closeExportSidebar();
@@ -1456,6 +1506,23 @@
             const pages = document.querySelectorAll('.page');
             let docxContent = '';
             
+            // Helper to convert computed RGB color to Word Hex format (RRGGBB)
+            const getColorHex = (element) => {
+                const color = window.getComputedStyle(element).color;
+                if (!color || color === 'rgba(0, 0, 0, 0)') return '000000';
+                const rgb = color.match(/\d+/g);
+                if (!rgb) return '000000';
+                return ((1 << 24) + (parseInt(rgb[0]) << 16) + (parseInt(rgb[1]) << 8) + parseInt(rgb[2])).toString(16).slice(1);
+            };
+
+            // Helper to parse font size to half-points (Word uses half-points)
+            const getFontSize = (element) => {
+                const size = window.getComputedStyle(element).fontSize; // e.g., "16px"
+                const px = parseFloat(size);
+                // Approximate conversion: 1px = 1.5 half-points
+                return Math.round(px * 2); 
+            };
+
             const escapeXML = (str) => {
                 if(!str) return '';
                 return str.replace(/&/g, '&amp;')
@@ -1465,92 +1532,122 @@
                           .replace(/'/g, '&apos;');
             };
 
-            // Helper to process a DOM node and return DOCX XML
             const processNode = (node) => {
                 let xml = '';
                 
-                // Skip UI controls
-                if (node.classList && (node.classList.contains('move-controls') || node.classList.contains('btn-rm'))) {
+                // Skip UI controls and icons
+                if (node.classList && (node.classList.contains('move-controls') || node.classList.contains('btn-rm') || node.tagName === 'I')) {
                     return '';
                 }
 
-                // Handle Headings
-                if (node.tagName === 'H1') {
-                    xml += `<w:p><w:pPr><w:pStyle w:val="Title"/></w:pPr><w:r><w:t>${escapeXML(node.textContent)}</w:t></w:r></w:p>`;
-                } else if (node.tagName === 'H2') {
-                    xml += `<w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr><w:r><w:t>${escapeXML(node.textContent)}</w:t></w:r></w:p>`;
+                const isBold = window.getComputedStyle(node).fontWeight === 'bold' || window.getComputedStyle(node).fontWeight === '700' || node.tagName === 'STRONG';
+                const isItalic = window.getComputedStyle(node).fontStyle === 'italic' || node.tagName === 'EM';
+                const color = getColorHex(node);
+                const fontSize = getFontSize(node);
+
+                // --- Structure Handlers ---
+                
+                // 1. NAME (H1)
+                if (node.classList.contains('name') || node.tagName === 'H1') {
+                    const accent = document.documentElement.style.getPropertyValue('--accent') || '2b6cb0';
+                    // Convert var to hex if needed, otherwise simple hex
+                    let hexColor = accent.startsWith('#') ? accent.replace('#', '') : '2b6cb0';
+                    
+                    xml += `<w:p><w:pPr><w:pStyle w:val="Title"/></w:pPr><w:r><w:rPr><w:color w:val="${hexColor}"/><w:sz w:val="${fontSize}"/></w:rPr><w:t>${escapeXML(node.textContent)}</w:t></w:r></w:p>`;
                 } 
-                // Handle Lists
+                
+                // 2. SECTION TITLES (H2)
+                else if (node.classList.contains('section-title') || (node.tagName === 'H2' && node.classList.contains('name') === false)) {
+                    const accent = document.documentElement.style.getPropertyValue('--accent') || '2b6cb0';
+                    let hexColor = accent.startsWith('#') ? accent.replace('#', '') : '2b6cb0';
+                    
+                    xml += `<w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr><w:r><w:rPr><w:color w:val="${hexColor}"/><w:b/><w:sz w:val="${fontSize}"/></w:rPr><w:t>${escapeXML(node.textContent)}</w:t></w:r></w:p>`;
+                } 
+                
+                // 3. LISTS (UL)
                 else if (node.tagName === 'UL') {
                     node.querySelectorAll('li').forEach(li => {
                         xml += `<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>${escapeXML(li.textContent)}</w:t></w:r></w:p>`;
                     });
                 }
-                // Handle Paragraphs and Divs (generic text containers)
+                
+                // 4. PARAGRAPHS AND DIVS
                 else if (node.tagName === 'P' || node.tagName === 'DIV') {
-                    // Check specifically for our "job-head" structure to preserve formatting
+                    // Handle Job Header (Company | Date)
                     if (node.classList.contains('job-head')) {
                         const spans = node.querySelectorAll('span');
-                        if (spans.length > 0) {
-                            xml += `<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>${escapeXML(spans[0].textContent)}</w:t></w:r>`;
-                            if (spans[1]) xml += `<w:r><w:t xml:space="preserve">  |  ${escapeXML(spans[1].textContent)}</w:t></w:r>`;
-                            xml += `</w:p>`;
-                            return xml;
-                        }
-                    }
-                    if (node.classList.contains('job-sub')) {
-                        const spans = node.querySelectorAll('span');
-                        if (spans.length > 0) {
-                            xml += `<w:p><w:r><w:rPr><w:i/></w:rPr><w:t>${escapeXML(spans[0].textContent)}</w:t></w:r>`;
-                            if (spans[1]) xml += `<w:r><w:t xml:space="preserve"> - ${escapeXML(spans[1].textContent)}</w:t></w:r>`;
-                            xml += `</w:p>`;
-                            return xml;
-                        }
+                        const company = spans[0] ? spans[0].textContent : node.childNodes[0].textContent;
+                        const date = spans[1] ? spans[1].textContent : '';
+                        
+                        xml += `<w:p><w:r><w:rPr><w:b/><w:sz w:val="${fontSize}"/></w:rPr><w:t>${escapeXML(company)}</w:t></w:r>`;
+                        if (date) xml += `<w:r><w:tab/><w:rPr><w:sz w:val="${fontSize}"/></w:rPr><w:t xml:space="preserve">   ${escapeXML(date)}</w:t></w:r>`;
+                        xml += `</w:p>`;
+                        return xml;
                     }
                     
-                    // Standard text content if not empty and has no block children (like nested divs)
-                    if (node.childNodes.length > 0 && !node.querySelector('div, p, ul, h1, h2')) {
-                        const text = node.textContent.trim();
-                        if (text) {
-                            // Apply italics if tagline
-                            if (node.classList.contains('tagline')) {
-                                xml += `<w:p><w:pPr><w:pStyle w:val="Subtitle"/></w:pPr><w:r><w:t>${escapeXML(text)}</w:t></w:r></w:p>`;
-                            } else {
-                                xml += `<w:p><w:r><w:t>${escapeXML(text)}</w:t></w:r></w:p>`;
-                            }
-                        }
-                    } else {
-                        // If it HAS children, recurse
-                        Array.from(node.children).forEach(child => {
-                            xml += processNode(child);
+                    // Handle Job Sub (Title | Location)
+                    if (node.classList.contains('job-sub')) {
+                        const spans = node.querySelectorAll('span');
+                        const title = spans[0] ? spans[0].textContent : node.childNodes[0].textContent;
+                        const loc = spans[1] ? spans[1].textContent : '';
+                        
+                        xml += `<w:p><w:r><w:rPr><w:i/><w:sz w:val="${fontSize}"/></w:rPr><w:t>${escapeXML(title)}</w:t></w:r>`;
+                        if (loc) xml += `<w:r><w:tab/><w:rPr><w:sz w:val="${fontSize}"/></w:rPr><w:t xml:space="preserve"> – ${escapeXML(loc)}</w:t></w:r>`;
+                        xml += `</w:p>`;
+                        return xml;
+                    }
+
+                    // Handle Tagline
+                    if (node.classList.contains('tagline')) {
+                        xml += `<w:p><w:pPr><w:pStyle w:val="Subtitle"/></w:pPr><w:r><w:rPr><w:color w:val="666666"/><w:i/><w:sz w:val="${fontSize}"/></w:rPr><w:t>${escapeXML(node.textContent)}</w:t></w:r></w:p>`;
+                        return xml;
+                    }
+
+                    // Contact Info container - inline spans
+                    if (node.classList.contains('contact-info')) {
+                        // Flatten contact info into one line or multiple paragraphs
+                        Array.from(node.children).forEach(span => {
+                             if(span.tagName === 'SPAN') {
+                                 xml += `<w:r><w:t>${escapeXML(span.textContent)}    </w:t></w:r>`;
+                             }
                         });
+                        xml += `<w:p/><w:p/>`; // Add spacing
+                        return xml;
+                    }
+
+                    // Standard paragraph with style checks
+                    const text = node.textContent.trim();
+                    if (text && !node.querySelector('div, p, ul, h1, h2, section')) {
+                        let rPr = `<w:sz w:val="${fontSize}"/>`;
+                        if (isBold) rPr += `<w:b/>`;
+                        if (isItalic) rPr += `<w:i/>`;
+                        if (color !== '000000') rPr += `<w:color w:val="${color}"/>`;
+                        
+                        xml += `<w:p><w:r><w:rPr>${rPr}</w:rPr><w:t>${escapeXML(text)}</w:t></w:r></w:p>`;
+                    } else {
+                        // Recurse for containers
+                        Array.from(node.children).forEach(child => xml += processNode(child));
                     }
                 }
-                // Handle Sections (Recurse)
-                else if (node.tagName === 'SECTION' || node.tagName === 'HEADER' || node.tagName === 'MAIN' || node.tagName === 'ASIDE') {
-                    Array.from(node.children).forEach(child => {
-                        xml += processNode(child);
-                    });
+                
+                // 5. STRUCTURAL BLOCKS
+                else if (['SECTION', 'HEADER', 'MAIN', 'ASIDE'].includes(node.tagName)) {
+                    Array.from(node.children).forEach(child => xml += processNode(child));
                 }
                 
                 return xml;
             };
 
-            // Iterate over pages
+            // Process Pages
             pages.forEach((page, index) => {
-                // Header (only from first page usually, but we check all)
                 const header = page.querySelector('header');
-                if (header && header.style.display !== 'none') docxContent += processNode(header);
-
-                // Main content
                 const main = page.querySelector('main');
-                if (main) docxContent += processNode(main);
-
-                // Sidebar
                 const sidebar = page.querySelector('aside');
+
+                if (header && header.style.display !== 'none') docxContent += processNode(header);
+                if (main) docxContent += processNode(main);
                 if (sidebar && sidebar.style.display !== 'none') docxContent += processNode(sidebar);
 
-                // Page Break (except last page)
                 if (index < pages.length - 1) {
                     docxContent += `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`;
                 }
@@ -1562,15 +1659,65 @@
         function generateDOCX(content, filename) {
             const zip = new JSZip();
             
-            // Standard Word XML Structure
+            // Content Types
             zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>`);
             
+            // Relationships
             zip.folder("_rels").file(".rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`);
             
             zip.folder("word/_rels").file("document.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`);
 
-            zip.folder("word").file("styles.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="22"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:rPr><w:b/><w:sz w:val="36"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Subtitle"><w:name w:val="Subtitle"/><w:rPr><w:i/><w:color w:val="666666"/><w:sz w:val="24"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="Heading 2"/><w:rPr><w:b/><w:sz w:val="24"/><w:u w:val="single"/></w:rPr></w:style></w:styles>`);
+            // Enhanced Styles Definition
+            zip.folder("word").file("styles.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                <w:docDefaults>
+                    <w:rPrDefault>
+                        <w:rPr>
+                            <w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/>
+                            <w:sz w:val="22"/>
+                            <w:color w:val="000000"/>
+                        </w:rPr>
+                    </w:rPrDefault>
+                </w:docDefaults>
+                <!-- Title Style (Name) -->
+                <w:style w:type="paragraph" w:styleId="Title">
+                    <w:name w:val="Title"/>
+                    <w:rPr>
+                        <w:b/>
+                        <w:sz w:val="44"/>
+                        <w:szCs w:val="44"/>
+                    </w:rPr>
+                </w:style>
+                <!-- Subtitle Style (Tagline) -->
+                <w:style w:type="paragraph" w:styleId="Subtitle">
+                    <w:name w:val="Subtitle"/>
+                    <w:rPr>
+                        <w:i/>
+                        <w:color w:val="666666"/>
+                        <w:sz w:val="24"/>
+                    </w:rPr>
+                </w:style>
+                <!-- Heading 2 Style (Sections) -->
+                <w:style w:type="paragraph" w:styleId="Heading2">
+                    <w:name w:val="Heading 2"/>
+                    <w:rPr>
+                        <w:b/>
+                        <w:sz w:val="28"/>
+                        <w:color w:val="2b6cb0"/>
+                    </w:rPr>
+                </w:style>
+                <!-- List Style -->
+                <w:style w:type="numbering" w:styleId="ListParagraph">
+                    <w:name w:val="List Paragraph"/>
+                    <w:pPr>
+                        <w:numPr>
+                            <w:numId w:val="1"/>
+                        </w:numPr>
+                    </w:pPr>
+                </w:style>
+            </w:styles>`);
 
+            // Document Body
             zip.folder("word").file("document.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${content}</w:body></w:document>`);
             
             zip.generateAsync({type: "blob"}).then(function(content) {
