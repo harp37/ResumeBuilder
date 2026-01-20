@@ -1339,7 +1339,48 @@
         function getExportClone() {
             const node = document.getElementById('previewArea').cloneNode(true);
             
-            // Clean up UI elements
+            // --- 1. Replace FontAwesome icons with Inline SVGs ---
+            // We do this before cleaning up UI elements to preserve the structure
+            const icons = node.querySelectorAll('i');
+            icons.forEach(icon => {
+                const classList = icon.classList;
+                let pathData = '';
+                let viewBox = "0 0 512 512";
+
+                // Define paths for icons used in the resume
+                if (classList.contains('fa-envelope')) {
+                    pathData = "M464 64H48C21.49 64 0 85.49 0 112v288c0 26.51 21.49 48 48 48h416c26.51 0 48-21.49 48-48V112c0-26.51-21.49-48-48-48zm0 48v40.805c-22.422 18.259-58.168 46.651-134.587 106.49-16.841 13.247-50.201 45.072-73.413 44.701-23.208.375-56.579-31.459-73.413-44.701C106.18 199.465 70.425 171.067 48 152.805V112h416zM48 400V214.398c22.914 18.251 55.409 43.862 104.938 82.646 21.857 17.205 60.134 55.186 103.062 54.955 42.717.231 80.509-37.199 103.053-54.947 49.528-38.783 82.032-64.401 104.947-82.653V400H48z";
+                } 
+                else if (classList.contains('fa-phone')) {
+                    pathData = "M164.9 24.6c-7.7-18.6-28-28.5-47.4-20.2L36.4 42.6c-22.7 9.7-39 32.6-38.2 57.2.7 20.7 5.2 41.8 13.4 62.2 18.9 46.4 50 88.5 91 120.7 43 33.6 96.5 52.3 151.9 53.3 24.4.5 47.8-9.7 63.2-28.9l38.4-50.6c11.7-15.4 8.7-37.3-6.8-48.6l-59.7-44.3c-15.8-11.7-38.1-8.3-49.9 8.1l-18.9 25.5c-34.6-18.7-63.6-45.6-82.5-80.1l25.5-18.9c16.4-11.8 19.8-34.1 8.1-49.9l-44.3-59.7z";
+                } 
+                else if (classList.contains('fa-map-marker-alt') || classList.contains('fa-location-dot')) {
+                    pathData = "M384 192c0 87.4-117 243-168.3 307.2-12.3 15.3-35.1 15.3-47.4 0C117 435 0 279.4 0 192C0 86 86 0 192 0s192 86 192 192z";
+                } 
+                else if (classList.contains('fa-linkedin')) {
+                    pathData = "M100.3 480H7.4V180.9h92.9V480zM53.8 140.8c-29.7 0-53.8-24.1-53.8-53.8s24.1-53.8 53.8-53.8 53.8 24.1 53.8 53.8-24.1 53.8-53.8 53.8zm423.9 339.2h-92.7V334.4c0-34.7-.7-79.2-48.3-79.2-48.3 0-55.7 37.7-55.7 76.7V480H179.9V180.9h89.1v40.8h1.3c12.4-23.5 42.7-48.3 87.9-48.3 94 0 111.4 61.9 111.4 142.3V480z";
+                }
+
+                if (pathData) {
+                    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                    svg.setAttribute("viewBox", viewBox);
+                    svg.setAttribute("aria-hidden", "true");
+                    svg.setAttribute("role", "img");
+                    // Preserve icon styling classes (like text colors) on the SVG
+                    svg.className = icon.className;
+                    // Add inline styles to match FontAwesome default behavior
+                    svg.style.cssText = "display: inline-block; height: 1em; overflow: visible; vertical-align: -0.125em; width: 1em; fill: currentColor;";
+                    
+                    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                    path.setAttribute("d", pathData);
+                    path.setAttribute("fill", "currentColor"); // Ensures it inherits text color
+                    
+                    svg.appendChild(path);
+                    icon.parentNode.replaceChild(svg, icon);
+                }
+            });
+
+            // --- 2. Clean up UI elements ---
             node.querySelectorAll('.move-controls, .btn-rm, .section-controls').forEach(el => el.remove());
             
             // Convert inputs/textareas to text
@@ -1348,20 +1389,17 @@
                 el.parentNode.replaceChild(text, el);
             });
 
-            // Resolve CSS Variables for accurate SVG/PNG rendering
-            // We replace var(--variable) with the actual computed value inline for critical elements
+            // --- 3. Resolve CSS Variables ---
             const resolveVars = (el) => {
                 const computed = window.getComputedStyle(el);
                 const style = el.style;
                 
-                // Check for color variables
                 if (style.color && style.color.includes('var')) {
                     el.style.color = computed.color;
                 }
                 if (style.backgroundColor && style.backgroundColor.includes('var')) {
                     el.style.backgroundColor = computed.backgroundColor;
                 }
-                // Check for border-color variables
                 if (style.borderColor && style.borderColor.includes('var')) {
                     el.style.borderColor = computed.borderColor;
                 }
@@ -1394,7 +1432,7 @@
             const accentColor = rgbToHex(getComputedStyle(document.documentElement).getPropertyValue('--accent').trim());
             const textColor = rgbToHex(getComputedStyle(document.documentElement).getPropertyValue('--text-main').trim());
 
-            // We must escape the & in the font URL for XML validity (replace & with &amp;)
+            // We must escape the & in the font URL for XML validity
             const fontUrl = "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&amp;family=Merriweather:ital,wght@0,300;0,700;1,400&amp;family=Fira+Code:wght@400;600&amp;family=Playfair+Display:ital,wght@0,400;0,700;1,400&amp;family=Lato:wght@300;400;700&amp;family=Oswald:wght@400;600&amp;family=Roboto+Slab:wght@300;400;700&amp;family=Raleway:wght@300;400;700&amp;family=Montserrat:wght@400;700&amp;family=Open+Sans:wght@400;600&amp;family=Lora:ital,wght@0,400;0,600;1,400&amp;family=Karla:wght@400;700&amp;family=Space+Mono:wght@400;700&amp;display=swap";
 
             return `
