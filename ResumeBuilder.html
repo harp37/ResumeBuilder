@@ -722,7 +722,6 @@
                     <option value="tpl-metro">Metro Cards</option>
                     <option value="tpl-bold-left">Bold Left</option>
                     <option value="tpl-swiss">Swiss Grid</option>
-                    <!-- Additional options would be here, truncated for brevity in listing, logic handles all 40 -->
                     <option value="tpl-banner">Banner Header</option>
                     <option value="tpl-compact">Compact</option>
                     <option value="tpl-futuristic">Futuristic</option>
@@ -791,18 +790,26 @@
         </div>
 
         <div class="export-card">
-            <h4><i class="fas fa-file-alt" style="color:#2b6cb0"></i> ODT / Text</h4>
-            <p>OpenDocument Text format. Editable in LibreOffice or Word.</p>
-            <button class="export-btn-large secondary" onclick="exportODT()">
-                <i class="fas fa-download"></i> Download ODT
+            <h4><i class="fas fa-file-word" style="color:#2b6cb0"></i> DOCX Document</h4>
+            <p>Microsoft Word format. Best for further editing.</p>
+            <button class="export-btn-large secondary" onclick="exportDOCX()">
+                <i class="fas fa-download"></i> Download DOCX
             </button>
         </div>
 
-        <div class="export-card" style="opacity: 0.6; pointer-events: none;">
-            <h4><i class="fas fa-file-code" style="color:#48bb78"></i> JSON Backup</h4>
-            <p>Full project state including settings and content.</p>
-            <button class="export-btn-large secondary" onclick="saveProject()">
-                <i class="fas fa-download"></i> Save Project
+        <div class="export-card">
+            <h4><i class="fas fa-file-image" style="color:#ed8936"></i> PNG Image</h4>
+            <p>Raster image format. High compatibility, fixed size.</p>
+            <button class="export-btn-large secondary" onclick="exportPNG()">
+                <i class="fas fa-download"></i> Download PNG
+            </button>
+        </div>
+
+        <div class="export-card">
+            <h4><i class="fas fa-bezier-curve" style="color:#805ad5"></i> SVG Vector</h4>
+            <p>Scalable Vector Graphics. Infinite scaling.</p>
+            <button class="export-btn-large secondary" onclick="exportSVG()">
+                <i class="fas fa-download"></i> Download SVG
             </button>
         </div>
 
@@ -1067,13 +1074,9 @@
             const pages = document.querySelectorAll('.page');
             const count = pages.length;
             
-            // Find current page in view (simple approximation)
-            const previewArea = document.getElementById('previewArea');
-            // Just show total pages for now as user scrolls freely
             document.getElementById('status-page-count').textContent = `Total Pages: ${count}`;
             
-            // Word count
-            const text = previewArea.innerText || "";
+            const text = document.getElementById('previewArea').innerText || "";
             const words = text.trim().split(/\s+/).filter(w => w.length > 0).length;
             document.getElementById('status-word-count').textContent = `${words} Words`;
         }
@@ -1332,182 +1335,254 @@
             document.getElementById('previewArea').classList.remove('panel-open-left');
         }
 
+        // --- IMAGE/SVG GENERATION HELPERS ---
+        function getExportClone() {
+            const node = document.getElementById('previewArea').cloneNode(true);
+            
+            // Clean up UI elements from the clone
+            node.querySelectorAll('.move-controls, .btn-rm').forEach(el => el.remove());
+            
+            // Ensure input/textareas are converted to text for export
+            node.querySelectorAll('input, textarea').forEach(el => {
+                const text = document.createTextNode(el.value);
+                el.parentNode.replaceChild(text, el);
+            });
+
+            return node;
+        }
+
+        function getSVGString() {
+            const clone = getExportClone();
+            
+            // 1. Serialize the HTML content to valid XHTML
+            const serializer = new XMLSerializer();
+            const data = serializer.serializeToString(clone);
+
+            // 2. Get CSS and wrap in CDATA to strictly prevent XML parsing errors
+            const styleContent = document.querySelector('style').innerHTML;
+            
+            // 3. Construct the SVG
+            // We use specific width/height (A4 @ 96dpi approx 794x1123)
+            return `
+            <svg xmlns="http://www.w3.org/2000/svg" width="794" height="1123">
+                <defs>
+                    <style type="text/css">
+                    <![CDATA[
+                        ${styleContent}
+                    ]]>
+                    </style>
+                </defs>
+                <foreignObject width="100%" height="100%">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="background:white; width:100%; height:100%;">
+                        ${data}
+                    </div>
+                </foreignObject>
+            </svg>`;
+        }
+
         // --- EXPORT FUNCTIONS ---
         function exportPDF() {
             const filename = document.getElementById('exportFilename').value || 'Resume';
             const oldTitle = document.title;
-            
-            // Set document title to filename for default PDF name
             document.title = filename;
-            
             closeExportSidebar();
             window.print();
-            
-            // Restore title
             document.title = oldTitle;
         }
 
-        function exportODT() {
+        function exportPNG() {
+            const filename = document.getElementById('exportFilename').value || 'resume';
+            closeExportSidebar();
+
+            const svgString = getSVGString();
+            const img = new Image();
+            
+            // Create a blob from the SVG string
+            const blob = new Blob([svgString], {type: 'image/svg+xml;charset=utf-8'});
+            const url = URL.createObjectURL(blob);
+
+            img.onload = function() {
+                const canvas = document.createElement('canvas');
+                canvas.width = 794; 
+                canvas.height = 1123;
+                const ctx = canvas.getContext('2d');
+                
+                // Fill white background (transparent by default)
+                ctx.fillStyle = "white";
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                ctx.drawImage(img, 0, 0);
+                
+                const pngUrl = canvas.toDataURL("image/png");
+                const downloadLink = document.createElement("a");
+                downloadLink.href = pngUrl;
+                downloadLink.download = filename + ".png";
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+                URL.revokeObjectURL(url);
+            };
+            
+            // Handle loading errors (often due to tainting)
+            img.onerror = function() {
+                alert("Error generating image. This is often caused by external fonts/images security policies.");
+            };
+
+            img.src = url;
+        }
+
+        function exportSVG() {
+            const filename = document.getElementById('exportFilename').value || 'resume';
+            closeExportSidebar();
+            
+            const svgString = getSVGString();
+            const blob = new Blob([svgString], {type: 'image/svg+xml;charset=utf-8'});
+            const url = URL.createObjectURL(blob);
+            
+            const downloadLink = document.createElement("a");
+            downloadLink.href = url;
+            downloadLink.download = filename + ".svg";
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+            document.body.removeChild(downloadLink);
+            URL.revokeObjectURL(url);
+        }
+
+        // --- ROBUST DOCX EXPORT ---
+        function exportDOCX() {
             const filename = document.getElementById('exportFilename').value || 'resume';
             closeExportSidebar();
             
             const pages = document.querySelectorAll('.page');
-            let allContent = '';
+            let docxContent = '';
             
-            pages.forEach((page, index) => {
-                const name = page.querySelector('.name')?.textContent || '';
-                const tagline = page.querySelector('.tagline')?.textContent || '';
-                const contactInfo = page.querySelector('.contact-info')?.textContent.replace(/\s+/g, ' ').trim() || '';
+            const escapeXML = (str) => {
+                if(!str) return '';
+                return str.replace(/&/g, '&amp;')
+                          .replace(/</g, '&lt;')
+                          .replace(/>/g, '&gt;')
+                          .replace(/"/g, '&quot;')
+                          .replace(/'/g, '&apos;');
+            };
+
+            // Helper to process a DOM node and return DOCX XML
+            const processNode = (node) => {
+                let xml = '';
                 
-                if (index === 0) {
-                    allContent += `<text:h text:style-name="Heading_20_1">${escapeXML(name)}</text:h>`;
-                    allContent += `<text:p text:style-name="Subtitle">${escapeXML(tagline)}</text:p>`;
-                    allContent += `<text:p text:style-name="Text_20_body">${escapeXML(contactInfo)}</text:p>`;
-                    allContent += `<text:p text:style-name="Text_20_body"></text:p>`;
+                // Skip UI controls
+                if (node.classList && (node.classList.contains('move-controls') || node.classList.contains('btn-rm'))) {
+                    return '';
                 }
-                
-                const sections = page.querySelectorAll('section');
-                sections.forEach(section => {
-                    const title = section.querySelector('.section-title');
-                    if (title) {
-                        allContent += `<text:h text:style-name="Heading_20_2">${escapeXML(title.textContent)}</text:h>`;
-                    }
-                    
-                    const entries = section.querySelectorAll('.entry');
-                    entries.forEach(entry => {
-                        const jobHead = entry.querySelector('.job-head');
-                        const jobSub = entry.querySelector('.job-sub');
-                        const list = entry.querySelector('ul');
-                        
-                        if (jobHead) {
-                            const spans = jobHead.querySelectorAll('span');
-                            if (spans.length === 2) {
-                                allContent += `<text:p text:style-name="Text_20_body"><text:span text:style-name="Bold">${escapeXML(spans[0].textContent)}</text:span> - ${escapeXML(spans[1].textContent)}</text:p>`;
-                            }
-                        }
-                        
-                        if (jobSub) {
-                            const spans = jobSub.querySelectorAll('span');
-                            if (spans.length === 2) {
-                                allContent += `<text:p text:style-name="Text_20_body"><text:span text:style-name="Italic">${escapeXML(spans[0].textContent)}</text:span> - ${escapeXML(spans[1].textContent)}</text:p>`;
-                            }
-                        }
-                        
-                        if (list) {
-                            const items = list.querySelectorAll('li');
-                            items.forEach(item => {
-                                allContent += `<text:list><text:list-item><text:p text:style-name="List">${escapeXML(item.textContent)}</text:p></text:list-item></text:list>`;
-                            });
-                        }
+
+                // Handle Headings
+                if (node.tagName === 'H1') {
+                    xml += `<w:p><w:pPr><w:pStyle w:val="Title"/></w:pPr><w:r><w:t>${escapeXML(node.textContent)}</w:t></w:r></w:p>`;
+                } else if (node.tagName === 'H2') {
+                    xml += `<w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr><w:r><w:t>${escapeXML(node.textContent)}</w:t></w:r></w:p>`;
+                } 
+                // Handle Lists
+                else if (node.tagName === 'UL') {
+                    node.querySelectorAll('li').forEach(li => {
+                        xml += `<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>${escapeXML(li.textContent)}</w:t></w:r></w:p>`;
                     });
-                    
-                    const directP = section.querySelector('p:not(.tagline)');
-                    if (directP) {
-                        allContent += `<text:p text:style-name="Text_20_body">${escapeXML(directP.textContent)}</text:p>`;
+                }
+                // Handle Paragraphs and Divs (generic text containers)
+                else if (node.tagName === 'P' || node.tagName === 'DIV') {
+                    // Check specifically for our "job-head" structure to preserve formatting
+                    if (node.classList.contains('job-head')) {
+                        const spans = node.querySelectorAll('span');
+                        if (spans.length > 0) {
+                            xml += `<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>${escapeXML(spans[0].textContent)}</w:t></w:r>`;
+                            if (spans[1]) xml += `<w:r><w:t xml:space="preserve">  |  ${escapeXML(spans[1].textContent)}</w:t></w:r>`;
+                            xml += `</w:p>`;
+                            return xml;
+                        }
+                    }
+                    if (node.classList.contains('job-sub')) {
+                        const spans = node.querySelectorAll('span');
+                        if (spans.length > 0) {
+                            xml += `<w:p><w:r><w:rPr><w:i/></w:rPr><w:t>${escapeXML(spans[0].textContent)}</w:t></w:r>`;
+                            if (spans[1]) xml += `<w:r><w:t xml:space="preserve"> - ${escapeXML(spans[1].textContent)}</w:t></w:r>`;
+                            xml += `</w:p>`;
+                            return xml;
+                        }
                     }
                     
-                    const directUL = section.querySelector('ul');
-                    if (directUL && !section.querySelector('.entry')) {
-                        const items = directUL.querySelectorAll('li');
-                        items.forEach(item => {
-                            allContent += `<text:list><text:list-item><text:p text:style-name="List">${escapeXML(item.textContent)}</text:p></text:list-item></text:list>`;
+                    // Standard text content if not empty and has no block children (like nested divs)
+                    if (node.childNodes.length > 0 && !node.querySelector('div, p, ul, h1, h2')) {
+                        const text = node.textContent.trim();
+                        if (text) {
+                            // Apply italics if tagline
+                            if (node.classList.contains('tagline')) {
+                                xml += `<w:p><w:pPr><w:pStyle w:val="Subtitle"/></w:pPr><w:r><w:t>${escapeXML(text)}</w:t></w:r></w:p>`;
+                            } else {
+                                xml += `<w:p><w:r><w:t>${escapeXML(text)}</w:t></w:r></w:p>`;
+                            }
+                        }
+                    } else {
+                        // If it HAS children, recurse
+                        Array.from(node.children).forEach(child => {
+                            xml += processNode(child);
                         });
                     }
-                    
-                    allContent += `<text:p text:style-name="Text_20_body"></text:p>`;
-                });
+                }
+                // Handle Sections (Recurse)
+                else if (node.tagName === 'SECTION' || node.tagName === 'HEADER' || node.tagName === 'MAIN' || node.tagName === 'ASIDE') {
+                    Array.from(node.children).forEach(child => {
+                        xml += processNode(child);
+                    });
+                }
                 
+                return xml;
+            };
+
+            // Iterate over pages
+            pages.forEach((page, index) => {
+                // Header (only from first page usually, but we check all)
+                const header = page.querySelector('header');
+                if (header && header.style.display !== 'none') docxContent += processNode(header);
+
+                // Main content
+                const main = page.querySelector('main');
+                if (main) docxContent += processNode(main);
+
+                // Sidebar
+                const sidebar = page.querySelector('aside');
+                if (sidebar && sidebar.style.display !== 'none') docxContent += processNode(sidebar);
+
+                // Page Break (except last page)
                 if (index < pages.length - 1) {
-                    allContent += `<text:p text:style-name="Page_20_Break"/>`;
+                    docxContent += `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`;
                 }
             });
             
-            generateODT(allContent, filename);
+            generateDOCX(docxContent, filename);
         }
 
-        function escapeXML(str) {
-            return str.replace(/&/g, '&amp;')
-                      .replace(/</g, '&lt;')
-                      .replace(/>/g, '&gt;')
-                      .replace(/"/g, '&quot;')
-                      .replace(/'/g, '&apos;');
-        }
-
-        function generateODT(content, filename) {
+        function generateDOCX(content, filename) {
             const zip = new JSZip();
             
-            zip.file('mimetype', 'application/vnd.oasis.opendocument.text', {compression: 'STORE'});
+            // Standard Word XML Structure
+            zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>`);
             
-            const manifest = `<?xml version="1.0" encoding="UTF-8"?>
-<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.2">
-  <manifest:file-entry manifest:full-path="/" manifest:media-type="application/vnd.oasis.opendocument.text"/>
-  <manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/>
-  <manifest:file-entry manifest:full-path="styles.xml" manifest:media-type="text/xml"/>
-  <manifest:file-entry manifest:full-path="meta.xml" manifest:media-type="text/xml"/>
-</manifest:manifest>`;
-            zip.folder('META-INF').file('manifest.xml', manifest);
+            zip.folder("_rels").file(".rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`);
             
-            const meta = `<?xml version="1.0" encoding="UTF-8"?>
-<office:document-meta xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0">
-  <office:meta>
-    <meta:generator>Resume Builder Pro</meta:generator>
-    <meta:creation-date>${new Date().toISOString()}</meta:creation-date>
-  </office:meta>
-</office:document-meta>`;
-            zip.file('meta.xml', meta);
+            zip.folder("word/_rels").file("document.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`);
+
+            zip.folder("word").file("styles.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="22"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:rPr><w:b/><w:sz w:val="36"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Subtitle"><w:name w:val="Subtitle"/><w:rPr><w:i/><w:color w:val="666666"/><w:sz w:val="24"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="Heading 2"/><w:rPr><w:b/><w:sz w:val="24"/><w:u w:val="single"/></w:rPr></w:style></w:styles>`);
+
+            zip.folder("word").file("document.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${content}</w:body></w:document>`);
             
-            const styles = `<?xml version="1.0" encoding="UTF-8"?>
-<office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">
-  <office:styles>
-    <style:style style:name="Standard" style:family="paragraph"/>
-    <style:style style:name="Heading_20_1" style:family="paragraph" style:parent-style-name="Standard">
-      <style:text-properties fo:font-size="24pt" fo:font-weight="bold"/>
-    </style:style>
-    <style:style style:name="Heading_20_2" style:family="paragraph" style:parent-style-name="Standard">
-      <style:text-properties fo:font-size="16pt" fo:font-weight="bold"/>
-    </style:style>
-    <style:style style:name="Text_20_body" style:family="paragraph" style:parent-style-name="Standard">
-      <style:paragraph-properties fo:margin-top="0.1in" fo:margin-bottom="0.1in"/>
-    </style:style>
-    <style:style style:name="Subtitle" style:family="paragraph" style:parent-style-name="Standard">
-      <style:text-properties fo:font-size="14pt" fo:font-style="italic"/>
-    </style:style>
-    <style:style style:name="List" style:family="paragraph" style:parent-style-name="Standard">
-      <style:paragraph-properties fo:margin-left="0.5in"/>
-    </style:style>
-    <style:style style:name="Bold" style:family="text">
-      <style:text-properties fo:font-weight="bold"/>
-    </style:style>
-    <style:style style:name="Italic" style:family="text">
-      <style:text-properties fo:font-style="italic"/>
-    </style:style>
-    <style:style style:name="Page_20_Break" style:family="paragraph" style:parent-style-name="Standard">
-      <style:paragraph-properties fo:break-after="page"/>
-    </style:style>
-  </office:styles>
-</office:document-styles>`;
-            zip.file('styles.xml', styles);
-            
-            const contentXML = `<?xml version="1.0" encoding="UTF-8"?>
-<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">
-  <office:automatic-styles/>
-  <office:body>
-    <office:text>
-      ${content}
-    </office:text>
-  </office:body>
-</office:document-content>`;
-            zip.file('content.xml', contentXML);
-            
-            zip.generateAsync({type: 'blob'}).then(function(blob) {
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
+            zip.generateAsync({type: "blob"}).then(function(content) {
+                const url = URL.createObjectURL(content);
+                const a = document.createElement("a");
                 a.href = url;
-                a.download = filename + '.odt';
+                a.download = filename + ".docx";
                 a.click();
                 URL.revokeObjectURL(url);
             });
         }
+
 
         // --- CUSTOMIZATION PANEL ---
         function toggleCustomize() {
